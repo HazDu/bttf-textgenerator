@@ -1,38 +1,51 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import './App.css'
 
 const defaultText = 'INTO THE <\n> future'
 const FONT_FAMILY = '"BTTF Generator", sans-serif'
+const MAX_EXTRA_GRADIENT_STOPS = 3
+
+function createBaseGradientStops(prefix, startColor, endColor) {
+  return [
+    { id: `${prefix}-start`, kind: 'start', position: 0, color: startColor },
+    { id: `${prefix}-end`, kind: 'end', position: 100, color: endColor },
+  ]
+}
 
 const initialState = {
   text: defaultText,
-  margin: 96,
+  margin: 5,
   fontSize: 150,
   lineHeight: 1.1,
   letterSpacing: 4,
   backgroundMode: 'transparent',
-  backgroundColor1: '#050816',
-  backgroundColor2: '#1b365d',
+  backgroundGradientStops: createBaseGradientStops('background', '#050816', '#1b365d'),
   backgroundAngle: 90,
   fillMode: 'gradient',
-  fillColor1: '#C31104',
-  fillColor2: '#FEE137',
+  fillGradientStops: createBaseGradientStops('fill', '#C31104', '#FEE137'),
   fillAngle: 90,
   outlineEnabled: true,
-  outlineWidth: 16,
+  outlineWidth: 8,
   outlineMode: 'gradient',
-  outlineColor1: '#fff3bf',
-  outlineColor2: '#ff2f00',
+  outlineGradientStops: createBaseGradientStops('outline', '#fff3bf', '#ff2f00'),
   outlineAngle: 90,
   shadowEnabled: true,
   shadowBlur: 18,
   shadowOffsetX: 18,
   shadowOffsetY: 18,
+  shadowOffsetsLinked: false,
+  shadowLinkRatio: 1,
   shadowOpacity: 0.7,
   shadowMode: 'gradient',
-  shadowColor1: '#ff7b00',
-  shadowColor2: '#7a0000',
+  shadowGradientStops: createBaseGradientStops('shadow', '#ff7b00', '#7a0000'),
   shadowAngle: 90,
+  extrusionEnabled: false,
+  extrusionOffsetX: 32,
+  extrusionOffsetY: 24,
+  extrusionOffsetsLinked: false,
+  extrusionLinkRatio: 0.75,
+  extrusionLayers: 32,
+  extrusionTextureMode: 'border',
   jpgBackground: '#050816',
 }
 
@@ -85,21 +98,45 @@ function gradientVector(angle) {
   }
 }
 
-function buildGradient(id, angle, start, end, opacity = 1) {
+function sortGradientStops(stops) {
+  return [...stops].sort((a, b) => a.position - b.position)
+}
+
+function getBaseColor(stops) {
+  return stops[0]?.color || '#ffffff'
+}
+
+function buildGradient(id, angle, stops, opacity = 1) {
   const vector = gradientVector(angle)
-  const stopOne = opacity === 1 ? start : colorWithOpacity(start, opacity)
-  const stopTwo = opacity === 1 ? end : colorWithOpacity(end, opacity)
+  const sortedStops = sortGradientStops(stops)
+  const stopMarkup = sortedStops
+    .map((stop) => {
+      const stopColor = opacity === 1 ? stop.color : colorWithOpacity(stop.color, opacity)
+      return `<stop offset="${clamp(stop.position, 0, 100)}%" stop-color="${stopColor}" />`
+    })
+    .join('')
 
   return `
     <linearGradient id="${id}" x1="${vector.x1}" y1="${vector.y1}" x2="${vector.x2}" y2="${vector.y2}">
-      <stop offset="0%" stop-color="${stopOne}" />
-      <stop offset="100%" stop-color="${stopTwo}" />
+      ${stopMarkup}
     </linearGradient>
   `
 }
 
 function getPaint(mode, id, color) {
   return mode === 'gradient' ? `url(#${id})` : color
+}
+
+function getExtrusionLayerCount(offsetX, offsetY) {
+  return clamp(Math.ceil(Math.max(Math.abs(offsetX), Math.abs(offsetY))), 1, 180)
+}
+
+function getAxisRatio(x, y) {
+  if (Math.abs(x) < 0.0001) {
+    return null
+  }
+
+  return y / x
 }
 
 function getTextMetrics(context, text, fontSize) {
@@ -166,11 +203,20 @@ function measureLayout(state) {
       }
     : textBounds
 
+  const extrusionBounds = state.extrusionEnabled
+    ? {
+        minX: Math.min(contentBounds.minX, contentBounds.minX + state.extrusionOffsetX),
+        maxX: Math.max(contentBounds.maxX, contentBounds.maxX + state.extrusionOffsetX),
+        minY: Math.min(contentBounds.minY, contentBounds.minY + state.extrusionOffsetY),
+        maxY: Math.max(contentBounds.maxY, contentBounds.maxY + state.extrusionOffsetY),
+      }
+    : textBounds
+
   const renderBounds = {
-    minX: Math.min(textBounds.minX, shadowBounds.minX),
-    maxX: Math.max(textBounds.maxX, shadowBounds.maxX),
-    minY: Math.min(textBounds.minY, shadowBounds.minY),
-    maxY: Math.max(textBounds.maxY, shadowBounds.maxY),
+    minX: Math.min(textBounds.minX, shadowBounds.minX, extrusionBounds.minX),
+    maxX: Math.max(textBounds.maxX, shadowBounds.maxX, extrusionBounds.maxX),
+    minY: Math.min(textBounds.minY, shadowBounds.minY, extrusionBounds.minY),
+    maxY: Math.max(textBounds.maxY, shadowBounds.maxY, extrusionBounds.maxY),
   }
 
   const width = Math.max(1, Math.ceil(renderBounds.maxX - renderBounds.minX + state.margin * 2))
@@ -215,15 +261,15 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
   }
 
   if (state.backgroundMode === 'gradient') {
-    defs.push(buildGradient(backgroundGradientId, state.backgroundAngle, state.backgroundColor1, state.backgroundColor2))
+    defs.push(buildGradient(backgroundGradientId, state.backgroundAngle, state.backgroundGradientStops))
   }
 
   if (state.fillMode === 'gradient') {
-    defs.push(buildGradient(fillGradientId, state.fillAngle, state.fillColor1, state.fillColor2))
+    defs.push(buildGradient(fillGradientId, state.fillAngle, state.fillGradientStops))
   }
 
   if (state.outlineEnabled && state.outlineMode === 'gradient') {
-    defs.push(buildGradient(outlineGradientId, state.outlineAngle, state.outlineColor1, state.outlineColor2))
+    defs.push(buildGradient(outlineGradientId, state.outlineAngle, state.outlineGradientStops))
   }
 
   if (state.shadowEnabled && state.shadowMode === 'gradient') {
@@ -231,8 +277,7 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
       buildGradient(
         shadowGradientId,
         state.shadowAngle,
-        state.shadowColor1,
-        state.shadowColor2,
+        state.shadowGradientStops,
         state.shadowOpacity,
       ),
     )
@@ -249,10 +294,18 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
   const shadowPaint = getPaint(
     state.shadowMode,
     shadowGradientId,
-    colorWithOpacity(state.shadowColor1, state.shadowOpacity),
+    colorWithOpacity(getBaseColor(state.shadowGradientStops), state.shadowOpacity),
   )
-  const fillPaint = getPaint(state.fillMode, fillGradientId, state.fillColor1)
-  const outlinePaint = getPaint(state.outlineMode, outlineGradientId, state.outlineColor1)
+  const fillPaint = getPaint(state.fillMode, fillGradientId, getBaseColor(state.fillGradientStops))
+  const outlinePaint = getPaint(state.outlineMode, outlineGradientId, getBaseColor(state.outlineGradientStops))
+  const borderFallbackPaint =
+    state.outlineEnabled && state.outlineWidth > 0
+      ? outlinePaint
+      : fillPaint
+  const extrusionPaint =
+    state.extrusionTextureMode === 'shadow'
+      ? shadowPaint
+      : borderFallbackPaint
   const textMarkup = layout.lines
     .map((line) => {
       const content = escapeXml(line.text)
@@ -292,13 +345,48 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
         .join('')
     : ''
 
+  const extrusionLayerCount = clamp(
+    Math.round(state.extrusionLayers || getExtrusionLayerCount(state.extrusionOffsetX, state.extrusionOffsetY)),
+    1,
+    360,
+  )
+  const extrusionOutlineMarkup =
+    state.outlineEnabled && state.outlineWidth > 0
+      ? `stroke="${extrusionPaint}" stroke-width="${state.outlineWidth}" stroke-linejoin="round" paint-order="stroke fill"`
+      : 'stroke="none"'
+  const extrusionMarkup = state.extrusionEnabled
+    ? Array.from({ length: extrusionLayerCount }, (_, index) => index + 1)
+        .map((layer) => {
+          const progress = layer / extrusionLayerCount
+          const xOffset = state.extrusionOffsetX * progress
+          const yOffset = state.extrusionOffsetY * progress
+
+          return layout.lines
+            .map(
+              (line) => `
+                <text
+                  x="${line.x + xOffset}"
+                  y="${line.y + yOffset}"
+                  text-anchor="middle"
+                  font-size="${state.fontSize}"
+                  letter-spacing="${state.letterSpacing}"
+                  fill="${extrusionPaint}"
+                  ${extrusionOutlineMarkup}
+                >${escapeXml(line.text)}</text>
+              `,
+            )
+            .join('')
+        })
+        .join('')
+    : ''
+
   const backgroundMarkup =
     state.backgroundMode === 'transparent'
       ? ''
       : `<rect width="${layout.width}" height="${layout.height}" fill="${
           state.backgroundMode === 'gradient'
             ? `url(#${backgroundGradientId})`
-            : state.backgroundColor1
+            : getBaseColor(state.backgroundGradientStops)
         }" />`
 
   return `
@@ -306,6 +394,7 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
       <defs>${defs.join('')}</defs>
       ${backgroundMarkup}
       ${shadowMarkup}
+      ${extrusionMarkup}
       ${textMarkup}
     </svg>
   `
@@ -385,18 +474,138 @@ function SliderInput({ label, value, onChange, min, max, step = 1, formatValue =
   )
 }
 
+function GradientStopsEditor({ angle, stops, selectedStopId, onSelectedStopChange, onStopsChange }) {
+  const barRef = useRef(null)
+  const localCounterRef = useRef(0)
+
+  const sortedStops = sortGradientStops(stops)
+  const selectedStop = stops.find((stop) => stop.id === selectedStopId) || stops[0]
+  const extraStops = stops.filter((stop) => stop.kind === 'extra')
+  const canAddStop = extraStops.length < MAX_EXTRA_GRADIENT_STOPS
+
+  const previewBackground = `linear-gradient(${angle}deg, ${sortedStops
+    .map((stop) => `${stop.color} ${clamp(stop.position, 0, 100)}%`)
+    .join(', ')})`
+
+  function updateStopPosition(stopId, position) {
+    onStopsChange(
+      stops.map((stop) =>
+        stop.id === stopId && stop.kind === 'extra'
+          ? { ...stop, position: clamp(position, 0, 100) }
+          : stop,
+      ),
+    )
+  }
+
+  function getPositionFromClientX(clientX) {
+    if (!barRef.current) {
+      return 0
+    }
+
+    const rect = barRef.current.getBoundingClientRect()
+    const relative = (clientX - rect.left) / rect.width
+    return clamp(relative * 100, 0, 100)
+  }
+
+  function addStop() {
+    if (!canAddStop) {
+      return
+    }
+
+    localCounterRef.current += 1
+    const newStop = {
+      id: `extra-${localCounterRef.current}`,
+      kind: 'extra',
+      position: 50,
+      color: selectedStop?.color || stops[0]?.color || '#ffffff',
+    }
+
+    onStopsChange([...stops, newStop])
+    onSelectedStopChange(newStop.id)
+  }
+
+  function removeSelectedStop() {
+    if (!selectedStop || selectedStop.kind !== 'extra') {
+      return
+    }
+
+    const nextStops = stops.filter((stop) => stop.id !== selectedStop.id)
+    onStopsChange(nextStops)
+    onSelectedStopChange(nextStops[0]?.id || '')
+  }
+
+  function beginDrag(event, stop) {
+    onSelectedStopChange(stop.id)
+
+    if (stop.kind !== 'extra') {
+      return
+    }
+
+    const handlePointerMove = (moveEvent) => {
+      updateStopPosition(stop.id, getPositionFromClientX(moveEvent.clientX))
+    }
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', handlePointerUp)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', handlePointerUp)
+    updateStopPosition(stop.id, getPositionFromClientX(event.clientX))
+  }
+
+  return (
+    <div className="gradient-editor">
+      <div className="gradient-stop-actions">
+        <button type="button" onClick={addStop} disabled={!canAddStop}>
+          Add point
+        </button>
+        <button type="button" onClick={removeSelectedStop} disabled={!selectedStop || selectedStop.kind !== 'extra'}>
+          Remove point
+        </button>
+      </div>
+
+      <div className="gradient-track-shell">
+        <div className="gradient-track" ref={barRef} style={{ background: previewBackground }}>
+          {sortedStops.map((stop) => (
+            <button
+              key={stop.id}
+              type="button"
+              className={`gradient-stop-handle${selectedStop?.id === stop.id ? ' is-selected' : ''}${
+                stop.kind !== 'extra' ? ' is-fixed' : ''
+              }`}
+              style={{ left: `${clamp(stop.position, 0, 100)}%`, '--stop-color': stop.color }}
+              onPointerDown={(event) => beginDrag(event, stop)}
+              aria-label={`${stop.kind} point`}
+              title={stop.kind === 'extra' ? 'Drag to move point' : stop.kind}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ColorModeControls({
   title,
   mode,
   onModeChange,
-  color1,
-  color2,
+  gradientStops,
   angle,
-  onColor1Change,
-  onColor2Change,
+  onGradientStopsChange,
   onAngleChange,
   includeTransparent = false,
 }) {
+  const [selectedGradientStopId, setSelectedGradientStopId] = useState(gradientStops[0]?.id || '')
+  const baseColor = getBaseColor(gradientStops)
+  const selectedGradientStop = gradientStops.find((stop) => stop.id === selectedGradientStopId) || gradientStops[0]
+
+  useEffect(() => {
+    if (!selectedGradientStop && gradientStops[0]) {
+      setSelectedGradientStopId(gradientStops[0].id)
+    }
+  }, [selectedGradientStop, gradientStops])
+
   return (
     <div className="grid two-up compact">
       <label className="control">
@@ -410,17 +619,32 @@ function ColorModeControls({
       {mode !== 'transparent' ? (
         <>
           <label className="control">
-            <span>{mode === 'gradient' ? 'Start' : 'Color'}</span>
-            <input type="color" value={color1} onChange={(event) => onColor1Change(event.target.value)} />
+            <span>{mode === 'gradient' ? 'Selected point color' : 'Color'}</span>
+            <input
+              type="color"
+              value={mode === 'gradient' ? selectedGradientStop?.color || baseColor : baseColor}
+              onChange={(event) =>
+                onGradientStopsChange(
+                  gradientStops.map((stop, index) => {
+                    if (mode === 'gradient') {
+                      return stop.id === selectedGradientStop?.id ? { ...stop, color: event.target.value } : stop
+                    }
+
+                    return index === 0 ? { ...stop, color: event.target.value } : stop
+                  }),
+                )
+              }
+            />
           </label>
           {mode === 'gradient' ? (
-            <label className="control">
-              <span>End</span>
-              <input type="color" value={color2} onChange={(event) => onColor2Change(event.target.value)} />
-            </label>
-          ) : null}
-          {mode === 'gradient' ? (
-            <div className="full-span">
+            <div className="full-span gradient-controls-block">
+              <GradientStopsEditor
+                angle={angle}
+                stops={gradientStops}
+                selectedStopId={selectedGradientStopId}
+                onSelectedStopChange={setSelectedGradientStopId}
+                onStopsChange={onGradientStopsChange}
+              />
               <SliderInput
                 label="Angle"
                 value={angle}
@@ -484,6 +708,108 @@ function App() {
     setState((current) => ({ ...current, [key]: value }))
   }
 
+  function toggleShadowOffsetLink(checked) {
+    setState((current) => ({
+      ...current,
+      shadowOffsetsLinked: checked,
+      shadowLinkRatio: checked ? getAxisRatio(current.shadowOffsetX, current.shadowOffsetY) : current.shadowLinkRatio,
+    }))
+  }
+
+  function toggleExtrusionOffsetLink(checked) {
+    setState((current) => ({
+      ...current,
+      extrusionOffsetsLinked: checked,
+      extrusionLinkRatio: checked
+        ? getAxisRatio(current.extrusionOffsetX, current.extrusionOffsetY)
+        : current.extrusionLinkRatio,
+    }))
+  }
+
+  function setLinkedShadowOffset(axis, nextValue) {
+    setState((current) => {
+      if (!current.shadowOffsetsLinked) {
+        return { ...current, [axis]: nextValue }
+      }
+
+      const ratio = current.shadowLinkRatio
+
+      if (axis === 'shadowOffsetX') {
+        if (ratio !== null && Number.isFinite(ratio)) {
+          return {
+            ...current,
+            shadowOffsetX: nextValue,
+            shadowOffsetY: clamp(nextValue * ratio, -200, 200),
+          }
+        }
+
+        const delta = nextValue - current.shadowOffsetX
+        return {
+          ...current,
+          shadowOffsetX: nextValue,
+          shadowOffsetY: clamp(current.shadowOffsetY + delta, -200, 200),
+        }
+      }
+
+      if (ratio !== null && Number.isFinite(ratio) && Math.abs(ratio) > 0.0001) {
+        return {
+          ...current,
+          shadowOffsetY: nextValue,
+          shadowOffsetX: clamp(nextValue / ratio, -200, 200),
+        }
+      }
+
+      const delta = nextValue - current.shadowOffsetY
+      return {
+        ...current,
+        shadowOffsetY: nextValue,
+        shadowOffsetX: clamp(current.shadowOffsetX + delta, -200, 200),
+      }
+    })
+  }
+
+  function setLinkedExtrusionOffset(axis, nextValue) {
+    setState((current) => {
+      if (!current.extrusionOffsetsLinked) {
+        return { ...current, [axis]: nextValue }
+      }
+
+      const ratio = current.extrusionLinkRatio
+
+      if (axis === 'extrusionOffsetX') {
+        if (ratio !== null && Number.isFinite(ratio)) {
+          return {
+            ...current,
+            extrusionOffsetX: nextValue,
+            extrusionOffsetY: clamp(nextValue * ratio, -220, 220),
+          }
+        }
+
+        const delta = nextValue - current.extrusionOffsetX
+        return {
+          ...current,
+          extrusionOffsetX: nextValue,
+          extrusionOffsetY: clamp(current.extrusionOffsetY + delta, -220, 220),
+        }
+      }
+
+      if (ratio !== null && Number.isFinite(ratio) && Math.abs(ratio) > 0.0001) {
+        return {
+          ...current,
+          extrusionOffsetY: nextValue,
+          extrusionOffsetX: clamp(nextValue / ratio, -220, 220),
+        }
+      }
+
+      const delta = nextValue - current.extrusionOffsetY
+      return {
+        ...current,
+        extrusionOffsetY: nextValue,
+        extrusionOffsetX: clamp(current.extrusionOffsetX + delta, -220, 220),
+      }
+    })
+  }
+
   async function handleDownload(format) {
     const filenameBase = state.text
       .split('\n')
@@ -528,11 +854,23 @@ function App() {
     { id: 'shadow', label: 'Shadow' },
     { id: 'export', label: 'Export' },
   ]
+  const linkIcon = (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M10.6 13.4a4 4 0 0 1 0-5.66l2.12-2.12a4 4 0 0 1 5.66 5.66l-1.77 1.77m-3.21-2.55a4 4 0 0 1 0 5.66l-2.12 2.12a4 4 0 0 1-5.66-5.66l1.77-1.77"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
 
   return (
     <main className="app-shell">
       <header className="app-header">
-        <h1>BTTF Text Generator</h1>
+        <h1>Back to the Future Text Generator</h1>
       </header>
 
       <section className="preview-panel">
@@ -570,11 +908,9 @@ function App() {
                 title="Fill mode"
                 mode={state.backgroundMode}
                 onModeChange={(value) => patchState('backgroundMode', value)}
-                color1={state.backgroundColor1}
-                color2={state.backgroundColor2}
+                gradientStops={state.backgroundGradientStops}
                 angle={state.backgroundAngle}
-                onColor1Change={(value) => patchState('backgroundColor1', value)}
-                onColor2Change={(value) => patchState('backgroundColor2', value)}
+                onGradientStopsChange={(value) => patchState('backgroundGradientStops', value)}
                 onAngleChange={(value) => patchState('backgroundAngle', value)}
                 includeTransparent
               />
@@ -652,11 +988,9 @@ function App() {
                   title="Text fill"
                   mode={state.fillMode}
                   onModeChange={(value) => patchState('fillMode', value)}
-                  color1={state.fillColor1}
-                  color2={state.fillColor2}
+                  gradientStops={state.fillGradientStops}
                   angle={state.fillAngle}
-                  onColor1Change={(value) => patchState('fillColor1', value)}
-                  onColor2Change={(value) => patchState('fillColor2', value)}
+                  onGradientStopsChange={(value) => patchState('fillGradientStops', value)}
                   onAngleChange={(value) => patchState('fillAngle', value)}
                 />
               </section>
@@ -691,11 +1025,9 @@ function App() {
                       title="Outline color"
                       mode={state.outlineMode}
                       onModeChange={(value) => patchState('outlineMode', value)}
-                      color1={state.outlineColor1}
-                      color2={state.outlineColor2}
+                      gradientStops={state.outlineGradientStops}
                       angle={state.outlineAngle}
-                      onColor1Change={(value) => patchState('outlineColor1', value)}
-                      onColor2Change={(value) => patchState('outlineColor2', value)}
+                      onGradientStopsChange={(value) => patchState('outlineGradientStops', value)}
                       onAngleChange={(value) => patchState('outlineAngle', value)}
                     />
                   </>
@@ -720,13 +1052,14 @@ function App() {
                 </div>
                 {state.shadowEnabled ? (
                   <>
+                    <h4>Soft shadow</h4>
                     <div className="grid two-up">
                       <SliderInput
                         label="Offset X"
                         value={state.shadowOffsetX}
                         min={-200}
                         max={200}
-                        onChange={(value) => patchState('shadowOffsetX', value)}
+                        onChange={(value) => setLinkedShadowOffset('shadowOffsetX', value)}
                         formatValue={(value) => `${value}px`}
                       />
                       <SliderInput
@@ -734,7 +1067,7 @@ function App() {
                         value={state.shadowOffsetY}
                         min={-200}
                         max={200}
-                        onChange={(value) => patchState('shadowOffsetY', value)}
+                        onChange={(value) => setLinkedShadowOffset('shadowOffsetY', value)}
                         formatValue={(value) => `${value}px`}
                       />
                       <SliderInput
@@ -755,17 +1088,88 @@ function App() {
                         formatValue={(value) => value.toFixed(2)}
                       />
                     </div>
+                    <div className="offset-link-row">
+                      <button
+                        type="button"
+                        className={`link-icon-button${state.shadowOffsetsLinked ? ' is-linked' : ''}`}
+                        onClick={() => toggleShadowOffsetLink(!state.shadowOffsetsLinked)}
+                        aria-label="Toggle shadow offset link"
+                        title={state.shadowOffsetsLinked ? 'Offsets linked' : 'Link offsets'}
+                      >
+                        {linkIcon}
+                      </button>
+                    </div>
                     <ColorModeControls
                       title="Shadow color"
                       mode={state.shadowMode}
                       onModeChange={(value) => patchState('shadowMode', value)}
-                      color1={state.shadowColor1}
-                      color2={state.shadowColor2}
+                      gradientStops={state.shadowGradientStops}
                       angle={state.shadowAngle}
-                      onColor1Change={(value) => patchState('shadowColor1', value)}
-                      onColor2Change={(value) => patchState('shadowColor2', value)}
-                      onAngleChange={(value) => patchState('shadowAngle', value)}
+                      onGradientStopsChange={(value) => patchState('shadowGradientStops', value)}
+                        onAngleChange={(value) => patchState('shadowAngle', value)}
+                      />
+                  </>
+                ) : null}
+                <div className="section-title-row sub-section-title">
+                  <h4>3D extrusion</h4>
+                  <label className="toggle">
+                    <input
+                      type="checkbox"
+                      checked={state.extrusionEnabled}
+                      onChange={(event) => patchState('extrusionEnabled', event.target.checked)}
                     />
+                    <span>Enable</span>
+                  </label>
+                </div>
+                {state.extrusionEnabled ? (
+                  <>
+                    <div className="grid two-up">
+                      <SliderInput
+                        label="Depth X"
+                        value={state.extrusionOffsetX}
+                        min={-220}
+                        max={220}
+                        onChange={(value) => setLinkedExtrusionOffset('extrusionOffsetX', value)}
+                        formatValue={(value) => `${value}px`}
+                      />
+                      <SliderInput
+                        label="Depth Y"
+                        value={state.extrusionOffsetY}
+                        min={-220}
+                        max={220}
+                        onChange={(value) => setLinkedExtrusionOffset('extrusionOffsetY', value)}
+                        formatValue={(value) => `${value}px`}
+                      />
+                    </div>
+                    <div className="offset-link-row">
+                      <button
+                        type="button"
+                        className={`link-icon-button${state.extrusionOffsetsLinked ? ' is-linked' : ''}`}
+                        onClick={() => toggleExtrusionOffsetLink(!state.extrusionOffsetsLinked)}
+                        aria-label="Toggle extrusion depth link"
+                        title={state.extrusionOffsetsLinked ? 'Depth linked' : 'Link depth'}
+                      >
+                        {linkIcon}
+                      </button>
+                    </div>
+                    <SliderInput
+                      label="Edge precision"
+                      value={state.extrusionLayers}
+                      min={1}
+                      max={360}
+                      onChange={(value) => patchState('extrusionLayers', value)}
+                      formatValue={(value) => `${value} layers`}
+                    />
+                    <label className="control">
+                      <span>Edge texture</span>
+                      <select
+                        value={state.extrusionTextureMode}
+                        onChange={(event) => patchState('extrusionTextureMode', event.target.value)}
+                      >
+                        <option value="border">Border color (fallback text)</option>
+                        <option value="shadow">Shadow color</option>
+                      </select>
+                    </label>
                   </>
                 ) : null}
               </section>
