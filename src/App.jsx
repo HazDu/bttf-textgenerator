@@ -14,38 +14,44 @@ function createBaseGradientStops(prefix, startColor, endColor) {
 
 const initialState = {
   text: defaultText,
-  margin: 5,
+  margin: 20,
   fontSize: 150,
   lineHeight: 1.1,
   letterSpacing: 4,
-  backgroundMode: 'transparent',
-  backgroundGradientStops: createBaseGradientStops('background', '#050816', '#1b365d'),
-  backgroundAngle: 90,
+  backgroundMode: 'gradient',
+  backgroundGradientStops: createBaseGradientStops('background', '#132949', '#2c476d'),
+  backgroundAngle: 65,
   fillMode: 'gradient',
   fillGradientStops: createBaseGradientStops('fill', '#C31104', '#FEE137'),
   fillAngle: 90,
   outlineEnabled: true,
   outlineWidth: 8,
   outlineMode: 'gradient',
-  outlineGradientStops: createBaseGradientStops('outline', '#fff3bf', '#ff2f00'),
+  outlineGradientStops: [
+    { id: 'outline-start', kind: 'start', position: 0, color: '#ffffff' },
+    { id: 'outline-extra-1', kind: 'extra', position: 20, color: '#ffffff' },
+    { id: 'outline-extra-2', kind: 'extra', position: 40, color: '#000000' },
+    { id: 'outline-extra-3', kind: 'extra', position: 60, color: '#ffffff' },
+    { id: 'outline-end', kind: 'end', position: 100, color: '#ffffff' },
+  ],
   outlineAngle: 90,
   shadowEnabled: true,
-  shadowBlur: 18,
-  shadowOffsetX: 18,
-  shadowOffsetY: 18,
+  shadowBlur: 6,
+  shadowOffsetX: 6,
+  shadowOffsetY: 6,
   shadowOffsetsLinked: false,
   shadowLinkRatio: 1,
   shadowOpacity: 0.7,
-  shadowMode: 'gradient',
-  shadowGradientStops: createBaseGradientStops('shadow', '#ff7b00', '#7a0000'),
+  shadowMode: 'solid',
+  shadowGradientStops: createBaseGradientStops('shadow', '#000000', '#7a0000'),
   shadowAngle: 90,
-  extrusionEnabled: false,
-  extrusionOffsetX: 32,
-  extrusionOffsetY: 24,
+  extrusionEnabled: true,
+  extrusionOffsetX: 6,
+  extrusionOffsetY: 6,
   extrusionOffsetsLinked: false,
-  extrusionLinkRatio: 0.75,
+  extrusionLinkRatio: 1,
   extrusionLayers: 32,
-  extrusionTextureMode: 'border',
+  extrusionTextureMode: 'shadow',
   jpgBackground: '#050816',
 }
 
@@ -193,13 +199,15 @@ function measureLayout(state) {
     maxY: contentBounds.maxY + strokePadding,
   }
 
+  const shadowSourceOffsetX = state.extrusionEnabled ? state.extrusionOffsetX : 0
+  const shadowSourceOffsetY = state.extrusionEnabled ? state.extrusionOffsetY : 0
   const blurPadding = state.shadowEnabled ? state.shadowBlur * 3 : 0
   const shadowBounds = state.shadowEnabled
     ? {
-        minX: contentBounds.minX + state.shadowOffsetX - blurPadding,
-        maxX: contentBounds.maxX + state.shadowOffsetX + blurPadding,
-        minY: contentBounds.minY + state.shadowOffsetY - blurPadding,
-        maxY: contentBounds.maxY + state.shadowOffsetY + blurPadding,
+        minX: contentBounds.minX + shadowSourceOffsetX + state.shadowOffsetX - blurPadding,
+        maxX: contentBounds.maxX + shadowSourceOffsetX + state.shadowOffsetX + blurPadding,
+        minY: contentBounds.minY + shadowSourceOffsetY + state.shadowOffsetY - blurPadding,
+        maxY: contentBounds.maxY + shadowSourceOffsetY + state.shadowOffsetY + blurPadding,
       }
     : textBounds
 
@@ -306,6 +314,8 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
     state.extrusionTextureMode === 'shadow'
       ? shadowPaint
       : borderFallbackPaint
+  const shadowSourceOffsetX = state.extrusionEnabled ? state.extrusionOffsetX : 0
+  const shadowSourceOffsetY = state.extrusionEnabled ? state.extrusionOffsetY : 0
   const textMarkup = layout.lines
     .map((line) => {
       const content = escapeXml(line.text)
@@ -332,8 +342,8 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
     ? layout.lines
         .map((line) => `
           <text
-            x="${line.x + state.shadowOffsetX}"
-            y="${line.y + state.shadowOffsetY}"
+            x="${line.x + shadowSourceOffsetX + state.shadowOffsetX}"
+            y="${line.y + shadowSourceOffsetY + state.shadowOffsetY}"
             text-anchor="middle"
             font-size="${state.fontSize}"
             letter-spacing="${state.letterSpacing}"
