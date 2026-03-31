@@ -18,9 +18,17 @@
 }
 
 .app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   border-radius: 24px;
   padding: 18px 24px;
   margin-bottom: 18px;
+}
+
+.app-header-copy {
+  min-width: 0;
 }
 
 .app-header h1 {
@@ -29,6 +37,51 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: #fff1bf;
+}
+
+.header-github-link {
+  flex-shrink: 0;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 214, 83, 0.72);
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background:
+    linear-gradient(160deg, rgba(255, 245, 192, 0.42), rgba(255, 180, 22, 0.18)),
+    linear-gradient(135deg, #ffd84d, #ffbb1f 58%, #ff9100);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 223, 0.72),
+    0 8px 18px rgba(0, 0, 0, 0.32);
+  color: #251300;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    filter 180ms ease;
+}
+
+.header-github-link:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 250, 223, 0.8),
+    0 12px 24px rgba(0, 0, 0, 0.36);
+  filter: saturate(1.05);
+}
+
+.header-github-link:focus-visible {
+  outline: 2px solid rgba(255, 241, 191, 0.95);
+  outline-offset: 3px;
+}
+
+.header-github-link svg {
+  width: 18px;
+  height: 18px;
 }
 
 .preview-panel {
@@ -497,6 +550,11 @@
   .app-shell {
     width: min(100%, calc(100% - 20px));
     padding-top: 14px;
+  }
+
+  .app-header {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .app-header,
