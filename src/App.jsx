@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import opentype from 'opentype.js'
 import './App.css'
 
 const defaultText = 'INTO THE <\n> future'
@@ -244,29 +245,34 @@ function measureLayout(state) {
   }
 }
 
-function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
+function textToPathData(opentypeFont, text, fontSize, x, y, letterSpacing) {
+  const scale = fontSize / opentypeFont.unitsPerEm
+  const glyphs = opentypeFont.stringToGlyphs(text)
+  let cursorX = 0
+  const totalAdvance = glyphs.reduce((sum, glyph, i) => {
+    const advance = (glyph.advanceWidth || 0) * scale
+    const spacing = i < glyphs.length - 1 ? letterSpacing : 0
+    return sum + advance + spacing
+  }, 0)
+  const startX = x - totalAdvance / 2
+  const commands = []
+  for (let i = 0; i < glyphs.length; i++) {
+    const glyph = glyphs[i]
+    const path = glyph.getPath(startX + cursorX, y, fontSize)
+    commands.push(path.toPathData(2))
+    cursorX += (glyph.advanceWidth || 0) * scale + (i < glyphs.length - 1 ? letterSpacing : 0)
+  }
+  return commands.filter(Boolean).join(' ')
+}
+
+function buildSvgMarkup(state, layout, suffix, { extraDefs, renderElement }) {
   const fillGradientId = `fillGradient-${suffix}`
   const outlineGradientId = `outlineGradient-${suffix}`
   const shadowGradientId = `shadowGradient-${suffix}`
   const backgroundGradientId = `backgroundGradient-${suffix}`
   const shadowFilterId = `shadowFilter-${suffix}`
 
-  const defs = []
-
-  if (fontDataUrl) {
-    defs.push(`
-      <style>
-        @font-face {
-          font-family: 'BTTF Generator';
-          src: url('${fontDataUrl}') format('truetype');
-        }
-
-        text {
-          font-family: 'BTTF Generator';
-        }
-      </style>
-    `)
-  }
+  const defs = extraDefs ? [extraDefs] : []
 
   if (state.backgroundMode === 'gradient') {
     defs.push(buildGradient(backgroundGradientId, state.backgroundAngle, state.backgroundGradientStops))
@@ -316,42 +322,26 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
       : borderFallbackPaint
   const shadowSourceOffsetX = state.extrusionEnabled ? state.extrusionOffsetX : 0
   const shadowSourceOffsetY = state.extrusionEnabled ? state.extrusionOffsetY : 0
-  const textMarkup = layout.lines
-    .map((line) => {
-      const content = escapeXml(line.text)
-      const outlineMarkup =
-        state.outlineEnabled && state.outlineWidth > 0
-          ? `stroke="${outlinePaint}" stroke-width="${state.outlineWidth}" stroke-linejoin="round" paint-order="stroke fill"`
-          : 'stroke="none"'
 
-      return `
-        <text
-          x="${line.x}"
-          y="${line.y}"
-          text-anchor="middle"
-          font-size="${state.fontSize}"
-          letter-spacing="${state.letterSpacing}"
-          fill="${fillPaint}"
-          ${outlineMarkup}
-        >${content}</text>
-      `
-    })
+  const outlineAttrs =
+    state.outlineEnabled && state.outlineWidth > 0
+      ? `stroke="${outlinePaint}" stroke-width="${state.outlineWidth}" stroke-linejoin="round" paint-order="stroke fill"`
+      : 'stroke="none"'
+
+  const textMarkup = layout.lines
+    .map((line) => renderElement(line, line.x, line.y, fillPaint, outlineAttrs))
     .join('')
 
   const shadowMarkup = state.shadowEnabled
     ? layout.lines
-        .map((line) => `
-          <text
-            x="${line.x + shadowSourceOffsetX + state.shadowOffsetX}"
-            y="${line.y + shadowSourceOffsetY + state.shadowOffsetY}"
-            text-anchor="middle"
-            font-size="${state.fontSize}"
-            letter-spacing="${state.letterSpacing}"
-            filter="${state.shadowBlur > 0 ? `url(#${shadowFilterId})` : ''}"
-            fill="${shadowPaint}"
-            stroke="none"
-          >${escapeXml(line.text)}</text>
-        `)
+        .map((line) => renderElement(
+          line,
+          line.x + shadowSourceOffsetX + state.shadowOffsetX,
+          line.y + shadowSourceOffsetY + state.shadowOffsetY,
+          shadowPaint,
+          'stroke="none"',
+          state.shadowBlur > 0 ? `filter="url(#${shadowFilterId})"` : '',
+        ))
         .join('')
     : ''
 
@@ -360,7 +350,7 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
     1,
     360,
   )
-  const extrusionOutlineMarkup =
+  const extrusionOutlineAttrs =
     state.outlineEnabled && state.outlineWidth > 0
       ? `stroke="${extrusionPaint}" stroke-width="${state.outlineWidth}" stroke-linejoin="round" paint-order="stroke fill"`
       : 'stroke="none"'
@@ -372,19 +362,7 @@ function buildSvgMarkup(state, layout, fontDataUrl, suffix) {
           const yOffset = state.extrusionOffsetY * progress
 
           return layout.lines
-            .map(
-              (line) => `
-                <text
-                  x="${line.x + xOffset}"
-                  y="${line.y + yOffset}"
-                  text-anchor="middle"
-                  font-size="${state.fontSize}"
-                  letter-spacing="${state.letterSpacing}"
-                  fill="${extrusionPaint}"
-                  ${extrusionOutlineMarkup}
-                >${escapeXml(line.text)}</text>
-              `,
-            )
+            .map((line) => renderElement(line, line.x + xOffset, line.y + yOffset, extrusionPaint, extrusionOutlineAttrs))
             .join('')
         })
         .join('')
@@ -676,6 +654,7 @@ function App() {
   const [exportScale, setExportScale] = useState(2)
   const [exporting, setExporting] = useState('')
   const [fontDataUrl, setFontDataUrl] = useState('')
+  const [opentypeFont, setOpentypeFont] = useState(null)
   const [activeSection, setActiveSection] = useState('text')
   const svgId = useId().replaceAll(':', '')
 
@@ -697,8 +676,11 @@ function App() {
         reader.readAsDataURL(blob)
       })
 
+      const otFont = await opentype.load('/BTTF.ttf')
+
       if (active) {
         setFontDataUrl(dataUrl)
+        setOpentypeFont(otFont)
       }
     }
 
@@ -712,7 +694,20 @@ function App() {
   }, [])
 
   const layout = measureLayout(state)
-  const svgMarkup = buildSvgMarkup(state, layout, fontDataUrl, svgId)
+
+  const fontStyleDef = fontDataUrl
+    ? `<style>@font-face { font-family: 'BTTF Generator'; src: url('${fontDataUrl}') format('truetype'); } text { font-family: 'BTTF Generator'; }</style>`
+    : ''
+
+  const renderTextElement = (line, x, y, fill, strokeAttrs, extra = '') => `
+    <text x="${x}" y="${y}" text-anchor="middle" font-size="${state.fontSize}"
+      letter-spacing="${state.letterSpacing}" fill="${fill}" ${strokeAttrs} ${extra}
+    >${escapeXml(line.text)}</text>`
+
+  const svgMarkup = buildSvgMarkup(state, layout, svgId, {
+    extraDefs: fontStyleDef,
+    renderElement: renderTextElement,
+  })
 
   function patchState(key, value) {
     setState((current) => ({ ...current, [key]: value }))
@@ -833,7 +828,16 @@ function App() {
 
     try {
       if (format === 'svg') {
-        const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' })
+        const renderPathElement = opentypeFont
+          ? (line, x, y, fill, strokeAttrs, extra = '') => {
+              const d = textToPathData(opentypeFont, line.text, state.fontSize, x, y, state.letterSpacing)
+              return `<path d="${d}" fill="${fill}" ${strokeAttrs} ${extra} />`
+            }
+          : null
+        const exportMarkup = renderPathElement
+          ? buildSvgMarkup(state, layout, 'export', { renderElement: renderPathElement })
+          : svgMarkup
+        const svgBlob = new Blob([exportMarkup], { type: 'image/svg+xml;charset=utf-8' })
         const svgUrl = URL.createObjectURL(svgBlob)
         downloadFile(svgUrl, `${filenameBase}-${layout.width}x${layout.height}.svg`)
         setTimeout(() => URL.revokeObjectURL(svgUrl), 0)
