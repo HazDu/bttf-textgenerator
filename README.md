@@ -1,4 +1,4 @@
-# 📝 [Back to the Future Text Generator](https://bbtf-textgenerator.hazdu.de)
+# 📝 [Back to the Future Text Generator](https://bttf-textgenerator.hazdu.de)
 This project is a small web app for creating text graphics in a Back to the Future inspired style. It lets you enter custom text, adjust it completely to your likings, and export the result as an image. `.png, .jpg, .svg`
 
 ### ❓ Why I made this
