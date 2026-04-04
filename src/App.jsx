@@ -5,6 +5,7 @@ import './App.css'
 const defaultText = 'INTO THE <\n> future'
 const FONT_FAMILY = '"BTTF Generator", sans-serif'
 const MAX_EXTRA_GRADIENT_STOPS = 3
+const SYMBOL_GUIDE = ['$', '£', '¤', '&', ';', '|', '{', '}', '<', '>', '[', ']', '^']
 
 function createBaseGradientStops(prefix, startColor, endColor) {
   return [
@@ -656,7 +657,36 @@ function App() {
   const [fontDataUrl, setFontDataUrl] = useState('')
   const [opentypeFont, setOpentypeFont] = useState(null)
   const [activeSection, setActiveSection] = useState('text')
+  const [isSymbolGuideOpen, setIsSymbolGuideOpen] = useState(false)
   const svgId = useId().replaceAll(':', '')
+  const symbolGuideRef = useRef(null)
+  const headlineInputRef = useRef(null)
+
+  useEffect(() => {
+    if (!isSymbolGuideOpen) {
+      return undefined
+    }
+
+    function handlePointerDown(event) {
+      if (!symbolGuideRef.current?.contains(event.target)) {
+        setIsSymbolGuideOpen(false)
+      }
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === 'Escape') {
+        setIsSymbolGuideOpen(false)
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isSymbolGuideOpen])
 
   useEffect(() => {
     let active = true
@@ -711,6 +741,35 @@ function App() {
 
   function patchState(key, value) {
     setState((current) => ({ ...current, [key]: value }))
+  }
+
+  function insertHeadlineSymbol(symbol) {
+    const textarea = headlineInputRef.current
+
+    setState((current) => {
+      const text = current.text
+      const hasSelection = textarea && document.activeElement === textarea
+      const start = hasSelection ? textarea.selectionStart ?? text.length : text.length
+      const end = hasSelection ? textarea.selectionEnd ?? text.length : text.length
+
+      return {
+        ...current,
+        text: `${text.slice(0, start)}${symbol}${text.slice(end)}`,
+      }
+    })
+
+    requestAnimationFrame(() => {
+      if (!textarea) {
+        return
+      }
+
+      const hasSelection = document.activeElement === textarea
+      const basePosition = hasSelection ? textarea.selectionStart ?? textarea.value.length : textarea.value.length
+      const nextPosition = basePosition + symbol.length
+
+      textarea.focus()
+      textarea.setSelectionRange(nextPosition, nextPosition)
+    })
   }
 
   function toggleShadowOffsetLink(checked) {
@@ -976,11 +1035,50 @@ function App() {
                 <h3>Text</h3>
                 <label className="control">
                   <span>Headline</span>
-                  <textarea
-                    rows="4"
-                    value={state.text}
-                    onChange={(event) => patchState('text', event.target.value)}
-                  />
+                  <div className="text-input-shell" ref={symbolGuideRef}>
+                    <button
+                      type="button"
+                      className="symbol-guide-toggle"
+                      onClick={() => setIsSymbolGuideOpen((current) => !current)}
+                      aria-label="Show custom symbol guide"
+                      aria-expanded={isSymbolGuideOpen}
+                      aria-controls="symbol-guide-popover"
+                    >
+                      ?
+                    </button>
+                    <textarea
+                      ref={headlineInputRef}
+                      rows="4"
+                      value={state.text}
+                      onChange={(event) => patchState('text', event.target.value)}
+                    />
+                    {isSymbolGuideOpen ? (
+                      <div className="symbol-guide-popover" id="symbol-guide-popover" role="dialog" aria-label="Custom symbol guide">
+                        <p className="symbol-guide-copy">
+                          These ASCII characters render as custom glyphs in the BTTF font.
+                        </p>
+                        <div className="symbol-guide-list">
+                          {SYMBOL_GUIDE.map((symbol) => (
+                            <button
+                              key={symbol}
+                              type="button"
+                              className="symbol-guide-item"
+                              onClick={() => insertHeadlineSymbol(symbol)}
+                              aria-label={`Insert ${symbol}`}
+                            >
+                              <span className="symbol-guide-glyph" style={{ fontFamily: FONT_FAMILY }}>
+                                {symbol}
+                              </span>
+                              <span className="symbol-guide-arrow" aria-hidden="true">
+                                =
+                              </span>
+                              <code className="symbol-guide-ascii">{symbol}</code>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                 </label>
                 <div className="grid two-up">
                   <SliderInput
