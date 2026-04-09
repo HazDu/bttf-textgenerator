@@ -8,6 +8,8 @@ const FONT_FAMILY = `"${FONT_FACE_NAME}", sans-serif`
 const DEFAULT_FONT_URL = '/BTTF.ttf'
 const DEFAULT_FONT_NAME = 'BTTF.ttf'
 const FONT_UPLOAD_ACCEPT = '.ttf,.otf,.woff'
+const SETTINGS_FILE_NAME = 'CustomSettings_bttf-textgenerator.hazdu.de.json'
+const SETTINGS_FILE_ACCEPT = '.json,application/json'
 const MAX_EXTRA_GRADIENT_STOPS = 3
 const SYMBOL_GUIDE = ['$', '£', '¤', '&', ';', '|', '{', '}', '<', '>', '[', ']', '^']
 
@@ -671,10 +673,13 @@ function App() {
   const [opentypeFont, setOpentypeFont] = useState(null)
   const [fontSourceName, setFontSourceName] = useState(DEFAULT_FONT_NAME)
   const [fontUploadError, setFontUploadError] = useState('')
+  const [settingsTransferMessage, setSettingsTransferMessage] = useState('')
+  const [settingsTransferError, setSettingsTransferError] = useState(false)
   const [activeSection, setActiveSection] = useState('text')
   const [isSymbolGuideOpen, setIsSymbolGuideOpen] = useState(false)
   const svgId = useId().replaceAll(':', '')
   const fontUploadInputId = useId().replaceAll(':', '')
+  const settingsUploadInputId = useId().replaceAll(':', '')
   const symbolGuideRef = useRef(null)
   const headlineInputRef = useRef(null)
   const activeFontFaceRef = useRef(null)
@@ -825,6 +830,77 @@ function App() {
       console.error('Failed to reset bundled font', error)
       setFontUploadError('Unable to restore the bundled font right now.')
     })
+  }
+
+  async function loadFontFromDataUrl(dataUrl, sourceName) {
+    const response = await fetch(dataUrl)
+    const fontBuffer = await response.arrayBuffer()
+    await applyFontSource(dataUrl, fontBuffer, sourceName)
+  }
+
+  function handleDownloadSettings() {
+    const includesCustomFont = fontSourceName !== DEFAULT_FONT_NAME
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      state,
+      exportScale,
+      fontSourceName: includesCustomFont ? fontSourceName : DEFAULT_FONT_NAME,
+      ...(includesCustomFont ? { fontDataUrl } : {}),
+    }
+    const json = JSON.stringify(payload, null, 2)
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    downloadFile(url, SETTINGS_FILE_NAME)
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+    setSettingsTransferMessage(`Settings exported as ${SETTINGS_FILE_NAME}`)
+    setSettingsTransferError(false)
+  }
+
+  async function handleUploadSettings(event) {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    try {
+      const raw = await file.text()
+      const parsed = JSON.parse(raw)
+
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Invalid settings format')
+      }
+      if (!parsed.state || typeof parsed.state !== 'object' || Array.isArray(parsed.state)) {
+        throw new Error('Missing state object')
+      }
+
+      const shouldOverwrite = window.confirm('Overwrite your current settings with the imported settings?')
+      if (!shouldOverwrite) {
+        return
+      }
+
+      setState({ ...initialState, ...parsed.state })
+
+      if (Number.isFinite(parsed.exportScale)) {
+        setExportScale(clamp(Math.round(parsed.exportScale), 1, 4))
+      }
+
+      if (typeof parsed.fontDataUrl === 'string' && parsed.fontDataUrl.startsWith('data:')) {
+        await loadFontFromDataUrl(parsed.fontDataUrl, parsed.fontSourceName || 'Imported font')
+      } else {
+        await loadBundledFont()
+      }
+
+      setSettingsTransferMessage(`Settings imported from ${file.name}`)
+      setSettingsTransferError(false)
+    } catch (error) {
+      console.error('Failed to import settings', error)
+      setSettingsTransferMessage('Unable to import settings. Please upload a valid exported JSON file.')
+      setSettingsTransferError(true)
+    } finally {
+      event.target.value = ''
+    }
   }
 
   function toggleShadowOffsetLink(checked) {
@@ -1391,7 +1467,7 @@ function App() {
           {activeSection === 'export' ? (
             <div className="editor-scroll">
               <section className="panel-section">
-                <h3>Export</h3>
+                <h3>Image Export</h3>
                 <div className="grid two-up">
                   <label className="control">
                     <span>Scale</span>
@@ -1422,6 +1498,29 @@ function App() {
                     {exporting === 'svg' ? 'Packing SVG...' : 'Download SVG'}
                   </button>
                 </div>
+              </section>
+              <section className="panel-section">
+                <h3>Import / Export Settings</h3>
+                <input
+                  id={settingsUploadInputId}
+                  className="font-upload-input"
+                  type="file"
+                  accept={SETTINGS_FILE_ACCEPT}
+                  onChange={handleUploadSettings}
+                />
+                <div className="settings-transfer-actions">
+                  <button type="button" className="settings-transfer-button" onClick={handleDownloadSettings}>
+                    Download Settings JSON
+                  </button>
+                  <label htmlFor={settingsUploadInputId} className="settings-transfer-button settings-transfer-upload">
+                    Upload Settings JSON
+                  </label>
+                </div>
+                {settingsTransferMessage ? (
+                  <p className={`settings-transfer-message${settingsTransferError ? ' is-error' : ''}`}>
+                    {settingsTransferMessage}
+                  </p>
+                ) : null}
               </section>
             </div>
           ) : null}
