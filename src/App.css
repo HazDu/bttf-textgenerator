@@ -436,6 +436,78 @@
   font-size: 0.88rem;
 }
 
+.font-upload-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.font-upload-header h4 {
+  margin: 0;
+}
+
+.font-upload-header span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #cdd8eb;
+  font-size: 0.84rem;
+}
+
+.font-upload-input {
+  display: none;
+}
+
+.font-upload-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.font-upload-button,
+.font-upload-reset {
+  min-height: 42px;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.font-upload-button {
+  border: 1px solid rgba(255, 211, 106, 0.42);
+  color: #fff0bf;
+  cursor: pointer;
+  background:
+    linear-gradient(160deg, rgba(255, 213, 77, 0.26), rgba(255, 82, 0, 0.18)),
+    rgba(8, 12, 22, 0.9);
+}
+
+.font-upload-reset {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #dce7ff;
+  background: rgba(8, 12, 22, 0.9);
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.font-upload-reset:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.font-upload-error {
+  margin: 0;
+  color: #ffb5a8;
+  font-size: 0.82rem;
+}
+
 .gradient-editor {
   display: grid;
   gap: 10px;
@@ -713,5 +785,9 @@
 
   .symbol-guide-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .font-upload-actions {
+    grid-template-columns: 1fr;
   }
 }

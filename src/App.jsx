@@ -3,7 +3,11 @@ import opentype from 'opentype.js'
 import './App.css'
 
 const defaultText = 'INTO THE <\n> future'
-const FONT_FAMILY = '"BTTF Generator", sans-serif'
+const FONT_FACE_NAME = 'BTTF Generator'
+const FONT_FAMILY = `"${FONT_FACE_NAME}", sans-serif`
+const DEFAULT_FONT_URL = '/BTTF.ttf'
+const DEFAULT_FONT_NAME = 'BTTF.ttf'
+const FONT_UPLOAD_ACCEPT = '.ttf,.otf,.woff'
 const MAX_EXTRA_GRADIENT_STOPS = 3
 const SYMBOL_GUIDE = ['$', '£', '¤', '&', ';', '|', '{', '}', '<', '>', '[', ']', '^']
 
@@ -396,6 +400,15 @@ function downloadFile(url, name) {
   link.click()
 }
 
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(String(reader.result))
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
 async function svgToCanvas(svgMarkup, width, height, scale, format, jpgBackground) {
   const svgBlob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' })
   const blobUrl = URL.createObjectURL(svgBlob)
@@ -656,11 +669,43 @@ function App() {
   const [exporting, setExporting] = useState('')
   const [fontDataUrl, setFontDataUrl] = useState('')
   const [opentypeFont, setOpentypeFont] = useState(null)
+  const [fontSourceName, setFontSourceName] = useState(DEFAULT_FONT_NAME)
+  const [fontUploadError, setFontUploadError] = useState('')
   const [activeSection, setActiveSection] = useState('text')
   const [isSymbolGuideOpen, setIsSymbolGuideOpen] = useState(false)
   const svgId = useId().replaceAll(':', '')
+  const fontUploadInputId = useId().replaceAll(':', '')
   const symbolGuideRef = useRef(null)
   const headlineInputRef = useRef(null)
+  const activeFontFaceRef = useRef(null)
+
+  async function applyFontSource(dataUrl, fontBuffer, sourceName) {
+    const parsedFont = opentype.parse(fontBuffer)
+    const fontFace = new FontFace(FONT_FACE_NAME, `url("${dataUrl}")`)
+    await fontFace.load()
+
+    if (activeFontFaceRef.current) {
+      document.fonts.delete(activeFontFaceRef.current)
+    }
+
+    document.fonts.add(fontFace)
+    activeFontFaceRef.current = fontFace
+    setFontDataUrl(dataUrl)
+    setOpentypeFont(parsedFont)
+    setFontSourceName(sourceName)
+    setFontUploadError('')
+  }
+
+  async function loadBundledFont() {
+    const response = await fetch(DEFAULT_FONT_URL)
+    if (!response.ok) {
+      throw new Error(`Failed to fetch bundled font: ${response.status}`)
+    }
+    const blob = await response.blob()
+    const fontBuffer = await blob.arrayBuffer()
+    const dataUrl = await blobToDataUrl(blob)
+    await applyFontSource(dataUrl, fontBuffer, DEFAULT_FONT_NAME)
+  }
 
   useEffect(() => {
     if (!isSymbolGuideOpen) {
@@ -691,42 +736,26 @@ function App() {
   useEffect(() => {
     let active = true
 
-    async function loadFont() {
-      const fontFace = new FontFace('BTTF Generator', 'url(/BTTF.ttf)')
-      await fontFace.load()
-      document.fonts.add(fontFace)
-
-      const response = await fetch('/BTTF.ttf')
-      const blob = await response.blob()
-
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(String(reader.result))
-        reader.onerror = reject
-        reader.readAsDataURL(blob)
+    loadBundledFont().catch((error) => {
+        if (active) {
+          console.error('Failed to load font', error)
+          setFontUploadError('Failed to load the bundled font.')
+        }
       })
-
-      const otFont = await opentype.load('/BTTF.ttf')
-
-      if (active) {
-        setFontDataUrl(dataUrl)
-        setOpentypeFont(otFont)
-      }
-    }
-
-    loadFont().catch((error) => {
-      console.error('Failed to load font', error)
-    })
 
     return () => {
       active = false
+      if (activeFontFaceRef.current) {
+        document.fonts.delete(activeFontFaceRef.current)
+        activeFontFaceRef.current = null
+      }
     }
   }, [])
 
   const layout = measureLayout(state)
 
   const fontStyleDef = fontDataUrl
-    ? `<style>@font-face { font-family: 'BTTF Generator'; src: url('${fontDataUrl}') format('truetype'); } text { font-family: 'BTTF Generator'; }</style>`
+    ? `<style>@font-face { font-family: '${FONT_FACE_NAME}'; src: url('${fontDataUrl}'); } text { font-family: '${FONT_FACE_NAME}'; }</style>`
     : ''
 
   const renderTextElement = (line, x, y, fill, strokeAttrs, extra = '') => `
@@ -769,6 +798,32 @@ function App() {
 
       textarea.focus()
       textarea.setSelectionRange(nextPosition, nextPosition)
+    })
+  }
+
+  async function handleFontUpload(event) {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    try {
+      const fontBuffer = await file.arrayBuffer()
+      const dataUrl = await blobToDataUrl(file)
+      await applyFontSource(dataUrl, fontBuffer, file.name)
+    } catch (error) {
+      console.error('Failed to load uploaded font', error)
+      setFontUploadError('Unable to load that font. Please use a valid .ttf, .otf, or .woff file.')
+    } finally {
+      event.target.value = ''
+    }
+  }
+
+  function handleResetToDefaultFont() {
+    loadBundledFont().catch((error) => {
+      console.error('Failed to reset bundled font', error)
+      setFontUploadError('Unable to restore the bundled font right now.')
     })
   }
 
@@ -1125,6 +1180,31 @@ function App() {
                   onGradientStopsChange={(value) => patchState('fillGradientStops', value)}
                   onAngleChange={(value) => patchState('fillAngle', value)}
                 />
+                <div className="font-upload-header">
+                  <h4>Custom font</h4>
+                  <span>{fontSourceName}</span>
+                </div>
+                <input
+                  id={fontUploadInputId}
+                  className="font-upload-input"
+                  type="file"
+                  accept={FONT_UPLOAD_ACCEPT}
+                  onChange={handleFontUpload}
+                />
+                <div className="font-upload-actions">
+                  <label htmlFor={fontUploadInputId} className="font-upload-button">
+                    Upload .ttf/.otf/.woff
+                  </label>
+                  <button
+                    type="button"
+                    className="font-upload-reset"
+                    onClick={handleResetToDefaultFont}
+                    disabled={fontSourceName === DEFAULT_FONT_NAME}
+                  >
+                    Use default
+                  </button>
+                </div>
+                {fontUploadError ? <p className="font-upload-error">{fontUploadError}</p> : null}
               </section>
             </div>
           ) : null}
